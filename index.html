@@ -343,14 +343,22 @@
     if ('EventSource' in window) {
       const eventSource = new EventSource(SSE_URL);
 
-      // Triggers instantly whenever the presence server updates or detects a change
-      eventSource.addEventListener('update', () => {
-        refresh();
-        startFallbackTimer(); // Reset the 3-minute timer on instant update
+      eventSource.addEventListener('update', (event) => {
+        try {
+          if (event.data) {
+            // Render directly from event payload (includes Splatoon 3 data)
+            const data = JSON.parse(event.data);
+            render(data);
+          } else {
+            refresh();
+          }
+        } catch (e) {
+          refresh();
+        }
+        startFallbackTimer(); // Reset the 3-minute fallback timer
       });
 
       eventSource.onerror = () => {
-        // Keeps running on the 3-minute interval if the SSE connection fails
         console.warn('Live event stream disconnected. Relying on fallback timer.');
       };
     }
