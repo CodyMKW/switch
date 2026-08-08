@@ -223,6 +223,7 @@
   const FALLBACK_REFRESH_MS = 180000; // 3 minutes
 
   let fallbackInterval = null;
+  let hasLoadedData = false; // Tracks if we have successfully loaded data at least once
 
   function formatPlayTime(minutes) {
     minutes = minutes || 0;
@@ -261,9 +262,15 @@
   function render(data) {
     // If the backend returns an error payload instead of friend data, handle it gracefully
     if (data.error || !data.friend) {
-      showErrorState();
+      // Only show the hard error state if we don't have any existing data on the screen
+      if (!hasLoadedData) {
+        showErrorState();
+      }
       return;
     }
+
+    // Successfully got data, so we mark our flag as true
+    hasLoadedData = true;
 
     const friend = data.friend;
     const state = (friend.presence.state || 'OFFLINE').toUpperCase();
@@ -367,7 +374,10 @@
       render(data);
     } catch (err) {
       console.error('Switch status fetch failed or rate limited:', err);
-      showErrorState();
+      // Only nuke the UI with the error state if we haven't loaded any data yet
+      if (!hasLoadedData) {
+        showErrorState();
+      }
     }
   }
 
