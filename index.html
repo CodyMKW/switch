@@ -17,6 +17,7 @@
     --online: #4caf50;
     --inactive: #e0a94a;
     --offline: #6b6b70;
+    --error: #ff5a68;
   }
 
   * { box-sizing: border-box; }
@@ -88,6 +89,7 @@
 
   .dot.online { background: var(--online); }
   .dot.inactive { background: var(--inactive); }
+  .dot.error { background: var(--error); }
 
   #gameSection {
     display: none;
@@ -147,6 +149,7 @@
     color: var(--muted);
     font-size: 13px;
     padding: 18px 0 4px;
+    line-height: 1.4;
   }
 
   #lastUpdated {
@@ -169,12 +172,12 @@
 <body>
   <div class="card">
     <div class="header">
-      <img id="avatarImage" alt="">
+      <img id="avatarImage" alt="" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">
       <div class="header-text">
         <span id="playerName">Loading...</span>
         <div class="status-row">
           <span class="dot" id="statusDot"></span>
-          <span id="onlineStatus"></span>
+          <span id="onlineStatus">Connecting...</span>
         </div>
       </div>
     </div>
@@ -229,6 +232,7 @@
   }
 
   function timeAgo(unixSeconds) {
+    if (!unixSeconds) return 'recently';
     const diff = Math.floor(Date.now() / 1000) - unixSeconds;
     if (diff < 60) return 'just now';
     if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
@@ -239,13 +243,36 @@
   function hide(el) { el.style.display = 'none'; }
   function show(el, display) { el.style.display = display || 'block'; }
 
+  function showErrorState() {
+    const dot = document.getElementById('statusDot');
+    const statusText = document.getElementById('onlineStatus');
+    const emptyState = document.getElementById('emptyState');
+    
+    dot.className = 'dot error';
+    statusText.textContent = 'API Hiccup';
+    
+    hide(document.getElementById('gameSection'));
+    show(emptyState);
+    
+    emptyState.innerHTML = `The Nintendo API is taking a quick nap.<br>It will fix itself shortly!`;
+    document.getElementById('lastUpdated').textContent = 'Waiting for connection...';
+  }
+
   function render(data) {
+    // If the backend returns an error payload instead of friend data, handle it gracefully
+    if (data.error || !data.friend) {
+      showErrorState();
+      return;
+    }
+
     const friend = data.friend;
     const state = (friend.presence.state || 'OFFLINE').toUpperCase();
     const game = friend.presence.game || {};
 
-    document.getElementById('avatarImage').src = friend.imageUri;
-    document.getElementById('playerName').textContent = friend.name;
+    if (friend.imageUri) {
+      document.getElementById('avatarImage').src = friend.imageUri;
+    }
+    document.getElementById('playerName').textContent = friend.name || 'CodyMKW';
     document.getElementById('lastUpdated').textContent = 'Updated ' + timeAgo(friend.presence.updatedAt);
 
     const dot = document.getElementById('statusDot');
@@ -333,11 +360,14 @@
   async function refresh() {
     try {
       const res = await fetch(API_URL);
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
       const data = await res.json();
       render(data);
     } catch (err) {
-      document.getElementById('onlineStatus').textContent = 'Unable to load status';
-      console.error('Switch status fetch failed:', err);
+      console.error('Switch status fetch failed or rate limited:', err);
+      showErrorState();
     }
   }
 
@@ -356,7 +386,6 @@
       eventSource.addEventListener('update', (event) => {
         try {
           if (event.data) {
-            // Render directly from event payload (includes Splatoon 3 data)
             const data = JSON.parse(event.data);
             render(data);
           } else {
@@ -365,11 +394,13 @@
         } catch (e) {
           refresh();
         }
-        startFallbackTimer(); // Reset the 3-minute fallback timer
+        startFallbackTimer(); 
       });
 
       eventSource.onerror = () => {
-        console.warn('Live event stream disconnected. Relying on fallback timer.');
+        console.warn('Live event stream disconnected or errored out.');
+        // Don't forcefully showErrorState here because SSE can drop naturally, 
+        // we'll just let the fallback timer handle the next attempt.
       };
     }
   }
