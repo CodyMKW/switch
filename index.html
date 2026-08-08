@@ -223,7 +223,7 @@
   const FALLBACK_REFRESH_MS = 180000; // 3 minutes
 
   let fallbackInterval = null;
-  let hasLoadedData = false; // Tracks if we have successfully loaded data at least once
+  let hasLoadedData = false;
 
   function formatPlayTime(minutes) {
     minutes = minutes || 0;
@@ -260,16 +260,13 @@
   }
 
   function render(data) {
-    // If the backend returns an error payload instead of friend data, handle it gracefully
     if (data.error || !data.friend) {
-      // Only show the hard error state if we don't have any existing data on the screen
       if (!hasLoadedData) {
         showErrorState();
       }
       return;
     }
 
-    // Successfully got data, so we mark our flag as true
     hasLoadedData = true;
 
     const friend = data.friend;
@@ -306,7 +303,6 @@
       return;
     }
 
-    // ONLINE or PLAYING
     dot.classList.add('online');
     statusText.textContent = 'Online';
 
@@ -336,7 +332,6 @@
       hide(shopLink);
     }
 
-    // sysDescription (only for non-Splatoon titles that provide it)
     const sysDescRow = document.getElementById('sysDescriptionRow');
     if (game.sysDescription) {
       document.getElementById('sysDescription').textContent = game.sysDescription;
@@ -345,7 +340,6 @@
       hide(sysDescRow);
     }
 
-    // Splatoon 3: VS mode / stages
     const splatoonRow = document.getElementById('splatoonModeRow');
     const salmonRow = document.getElementById('salmonRunRow');
     hide(splatoonRow);
@@ -364,21 +358,19 @@
     }
   }
 
-  async function refresh() {
-    try {
-      const res = await fetch(API_URL);
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      const data = await res.json();
-      render(data);
-    } catch (err) {
-      console.error('Switch status fetch failed or rate limited:', err);
-      // Only nuke the UI with the error state if we haven't loaded any data yet
-      if (!hasLoadedData) {
-        showErrorState();
-      }
-    }
+  function refresh() {
+    fetch(API_URL)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.json();
+      })
+      .then(data => render(data))
+      .catch(err => {
+        console.error('Switch status fetch failed or rate limited:', err);
+        if (!hasLoadedData) {
+          showErrorState();
+        }
+      });
   }
 
   function startFallbackTimer() {
@@ -404,13 +396,10 @@
         } catch (e) {
           refresh();
         }
-        startFallbackTimer(); 
       });
 
       eventSource.onerror = () => {
-        console.warn('Live event stream disconnected or errored out.');
-        // Don't forcefully showErrorState here because SSE can drop naturally, 
-        // we'll just let the fallback timer handle the next attempt.
+        // SSE will auto-reconnect, 3-minute fallback timer stays ticking uninterrupted
       };
     }
   }
