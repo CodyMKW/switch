@@ -222,6 +222,19 @@
   const SSE_URL = 'https://nxapi-presence.fancy.org.uk/api/presence/644cd5195d154bd5/events?include-splatoon3=1';
   const FALLBACK_REFRESH_MS = 180000; // 3 minutes
 
+  // Named events the presence SSE stream can emit for individual field updates.
+  // The stream also emits a bare "update" heartbeat with no payload, and a
+  // "supported_events" event listing what's available.
+  const SSE_KEY_EVENTS = [
+    'friend',
+    'title',
+    'splatoon3',
+    'splatoon3_vs_setting',
+    'splatoon3_coop_setting',
+    'splatoon3_fest',
+    'splatoon3_fest_team'
+  ];
+
   let fallbackInterval = null;
   let hasLoadedData = false;
 
@@ -359,7 +372,9 @@
   }
 
   function refresh() {
-    fetch(API_URL)
+    // cache: 'no-store' ensures we never get served a stale cached response
+    // for what's supposed to be live presence data.
+    fetch(API_URL, { cache: 'no-store' })
       .then(res => {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         return res.json();
@@ -385,21 +400,26 @@
     if ('EventSource' in window) {
       const eventSource = new EventSource(SSE_URL);
 
-      eventSource.addEventListener('update', (event) => {
-        try {
-          if (event.data) {
-            const data = JSON.parse(event.data);
-            render(data);
-          } else {
-            refresh();
-          }
-        } catch (e) {
-          refresh();
-        }
+      // Heartbeat event: carries no data, just tells us the server checked.
+      // Use it as a cheap trigger to pull fresh data.
+      eventSource.addEventListener('update', () => {
+        refresh();
       });
 
-      eventSource.onerror = () => {
-        // SSE will auto-reconnect, 3-minute fallback timer stays ticking uninterrupted
+      // Field-specific events (friend, title, splatoon3, splatoon3_coop_setting, etc.)
+      // fire whenever that particular value changes. Each only carries the
+      // partial payload for that key, so rather than trying to merge partial
+      // data into render(), just do a full refetch to keep things simple/correct.
+      SSE_KEY_EVENTS.forEach(evtName => {
+        eventSource.addEventListener(evtName, () => {
+          refresh();
+        });
+      });
+
+      eventSource.onerror = (err) => {
+        // SSE will auto-reconnect on its own; log for debugging but keep
+        // relying on the 3-minute fallback timer in the meantime.
+        console.warn('Switch status SSE connection issue, falling back to polling:', err);
       };
     }
   }
